@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Data folders
+Assignment\ 1/pump
+Assignment\ 1/valve
+
 # C extensions
 *.so
 
