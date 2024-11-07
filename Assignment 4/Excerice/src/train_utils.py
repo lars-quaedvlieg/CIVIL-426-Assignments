@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import torch.optim as optim
-import numpy as np
 from tqdm import tqdm
 
 
@@ -24,7 +23,10 @@ def save_metrics_to_file(metrics, filename):
 
     # Append or update the new metrics
     for key, values in metrics.items():
-        all_metrics[key] = values  # Add new key-value pair
+        if key in all_metrics.keys():
+            all_metrics[key].append(values)
+        else:
+            all_metrics[key] = [values]  # Add new key-value pair
 
     # Save updated metrics back to the file
     with open(filename, 'w') as f:
@@ -92,10 +94,10 @@ def train_baseline(model, source_loader, target_loader, args, device):
         metrics['target_acc'].append(target_acc)
         metrics['total_loss'].append(total_loss)
 
-    save_metrics_to_file({'baseline': metrics}, 'metrics.json')
+    save_metrics_to_file({'baseline': metrics}, 'out/metrics.json')
 
     # Save final model
-    torch.save(model.state_dict(), 'final_baseline.pth')
+    torch.save(model.state_dict(), 'out/final_baseline.pth')
 
     # Return Final target accuracy 
     return target_acc
@@ -158,10 +160,10 @@ def train_coral(model, source_loader, target_loader, args, device):
         metrics['total_cls_loss'].append(total_cls_loss)
         metrics['total_coral_loss'].append(total_coral_loss)
 
-    save_metrics_to_file({'coral': metrics}, 'metrics.json')
+    save_metrics_to_file({'coral': metrics}, 'out/metrics.json')
 
     # Save final model
-    torch.save(model.state_dict(), 'final_coral.pth')
+    torch.save(model.state_dict(), 'out/final_coral.pth')
 
     # Return Final target accuracy 
     return target_acc
@@ -256,13 +258,13 @@ def train_adversarial(model, source_loader, target_loader, args, device):
         metrics['total_cls_loss_g'].append(total_cls_loss)
         metrics['total_gen_loss_g'].append(total_gen_loss)
 
-    save_metrics_to_file({'adverserial': metrics}, 'metrics.json')
+    save_metrics_to_file({'adverserial': metrics}, 'out/metrics.json')
 
     # Save final model
     torch.save({
         'model': model.state_dict(),
         'discriminator': discriminator.state_dict()
-    }, 'final_adversarial.pth')
+    }, 'out/final_adversarial.pth')
 
     # Return Final target accuracy 
     return target_acc
@@ -317,10 +319,10 @@ def train_adabn(model, source_loader, target_loader, args, device):
     metrics['target_loss'].append(target_loss)
     metrics['target_acc'].append(target_acc)
 
-    save_metrics_to_file({'adabn': metrics}, 'metrics.json')
+    save_metrics_to_file({'adabn': metrics}, 'out/metrics.json')
 
     # Save final model
-    torch.save(model.state_dict(), 'final_adabn.pth')
+    torch.save(model.state_dict(), 'out/final_adabn.pth')
 
     # Return Final target accuracy 
     return target_acc
