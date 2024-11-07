@@ -1,3 +1,7 @@
+import json
+import os
+from collections import defaultdict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +11,24 @@ import numpy as np
 from tqdm import tqdm
 
 
+def save_metrics_to_file(metrics, filename):
+    """Save the metrics dictionary to a JSON file."""
+    # Initialize an empty dictionary to hold metrics
+    all_metrics = {}
+
+    # Check if the file exists
+    if os.path.exists(filename):
+        # Load existing metrics
+        with open(filename, 'r') as f:
+            all_metrics = json.load(f)
+
+    # Append or update the new metrics
+    for key, values in metrics.items():
+        all_metrics[key] = values  # Add new key-value pair
+
+    # Save updated metrics back to the file
+    with open(filename, 'w') as f:
+        json.dump(all_metrics, f, indent=4)
 
 def compute_covariance(features: []):
     ######################
@@ -40,6 +62,7 @@ def train_baseline(model, source_loader, target_loader, args, device):
 
     optimizer = optim.Adam(model.parameters(), lr = args.lr)
 
+    metrics = defaultdict(list)
     for epoch in range(args.epochs):
         model.train()
         total_loss = 0
@@ -62,6 +85,15 @@ def train_baseline(model, source_loader, target_loader, args, device):
         # Print loss and accuracy for source and target 
         print(f"Epoch {epoch} - Source Loss: {source_loss:.4f}, Source Acc: {source_acc:.4f}, Target Loss: {target_loss:.4f}, Target Acc: {target_acc:.4f}")
 
+        # Metrics for report
+        metrics['source_loss'].append(source_loss)
+        metrics['source_acc'].append(source_acc)
+        metrics['target_loss'].append(target_loss)
+        metrics['target_acc'].append(target_acc)
+        metrics['total_loss'].append(total_loss)
+
+    save_metrics_to_file({'baseline': metrics}, 'metrics.json')
+
     # Save final model
     torch.save(model.state_dict(), 'final_baseline.pth')
 
@@ -72,10 +104,13 @@ def train_coral(model, source_loader, target_loader, args, device):
     """CORAL training"""
     print("\nTraining CORAL Model...")
 
+    metrics = defaultdict(list)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     for epoch in range(args.epochs):
         model.train()
         total_loss = 0
+        total_cls_loss = 0
+        total_coral_loss = 0
 
         for (source_data, source_target), (target_data, _) in zip(source_loader, target_loader):
 
@@ -104,6 +139,8 @@ def train_coral(model, source_loader, target_loader, args, device):
             optimizer.step()
 
             total_loss += loss.item()
+            total_cls_loss += cls_loss.item()
+            total_coral_loss += coral_loss.item()
 
         # Calculate training and testing metrics
         source_loss, source_acc = evaluate(model, source_loader, device)
@@ -111,6 +148,17 @@ def train_coral(model, source_loader, target_loader, args, device):
 
         # Print loss and accuracy for source and target
         print(f"Epoch {epoch} - Source Loss: {source_loss:.4f}, Source Acc: {source_acc:.4f}, Target Loss: {target_loss:.4f}, Target Acc: {target_acc:.4f}")
+
+        # Metrics for report
+        metrics['source_loss'].append(source_loss)
+        metrics['source_acc'].append(source_acc)
+        metrics['target_loss'].append(target_loss)
+        metrics['target_acc'].append(target_acc)
+        metrics['total_loss'].append(total_loss)
+        metrics['total_cls_loss'].append(total_cls_loss)
+        metrics['total_coral_loss'].append(total_coral_loss)
+
+    save_metrics_to_file({'coral': metrics}, 'metrics.json')
 
     # Save final model
     torch.save(model.state_dict(), 'final_coral.pth')
@@ -135,11 +183,14 @@ def train_adversarial(model, source_loader, target_loader, args, device):
     optimizer_g = optim.Adam(model.parameters(), lr=args.lr)
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.lr)
 
+    metrics = defaultdict(list)
     for epoch in range(args.epochs):
         model.train()
         discriminator.train()
         total_loss_g = 0
         total_loss_d = 0
+        total_cls_loss = 0
+        total_gen_loss = 0
 
         for (source_data, source_target), (target_data, _) in zip(source_loader, target_loader):
             source_data = source_data.to(device)
@@ -179,12 +230,14 @@ def train_adversarial(model, source_loader, target_loader, args, device):
             source_domain_pred = discriminator(source_features)
             target_domain_pred = discriminator(target_features)
 
-            g_loss = F.cross_entropy(source_domain_pred, target_domain) + F.cross_entropy(target_domain_pred, source_domain)
+            gen_loss = F.cross_entropy(source_domain_pred, target_domain) + F.cross_entropy(target_domain_pred, source_domain)
 
-            loss_g = cls_loss + args.adversarial_weight * g_loss
+            loss_g = cls_loss + args.adversarial_weight * gen_loss
             loss_g.backward()
             optimizer_g.step()
             total_loss_g += loss_g.item()
+            total_cls_loss += cls_loss.item()
+            total_gen_loss += gen_loss.item()
 
         # Calculate training and testing metrics
         source_loss, source_acc = evaluate(model, source_loader, device)
@@ -192,6 +245,18 @@ def train_adversarial(model, source_loader, target_loader, args, device):
 
         # Print loss and accuracy for source and target
         print(f"Epoch {epoch} - Source Loss: {source_loss:.4f}, Source Acc: {source_acc:.4f}, Target Loss: {target_loss:.4f}, Target Acc: {target_acc:.4f}")
+
+        # Metrics for report
+        metrics['source_loss'].append(source_loss)
+        metrics['source_acc'].append(source_acc)
+        metrics['target_loss'].append(target_loss)
+        metrics['target_acc'].append(target_acc)
+        metrics['total_loss_d'].append(total_loss_d)
+        metrics['total_loss_g'].append(total_loss_g)
+        metrics['total_cls_loss_g'].append(total_cls_loss)
+        metrics['total_gen_loss_g'].append(total_gen_loss)
+
+    save_metrics_to_file({'adverserial': metrics}, 'metrics.json')
 
     # Save final model
     torch.save({
@@ -210,6 +275,7 @@ def train_adabn(model, source_loader, target_loader, args, device):
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # 1. Train on source
+    metrics = defaultdict(list)
     for epoch in range(args.epochs):
         model.train()
         total_loss = 0
@@ -225,6 +291,8 @@ def train_adabn(model, source_loader, target_loader, args, device):
 
             total_loss += loss.item()
 
+        metrics['total_loss'].append(total_loss)
+
     # 2. Adapt BN statistics on target domain
     model.train()
     print("\nAdapting BN statistics on target domain...")
@@ -239,8 +307,17 @@ def train_adabn(model, source_loader, target_loader, args, device):
                 model(target_data)  # Forward pass to update BN stats
 
     # Calculate target accuracy and print it 
+    source_loss, source_acc = evaluate(model, source_loader, device)
     target_loss, target_acc = evaluate(model, target_loader, device)
     print(f"Final Target Accuracy after BN Adaptation: {target_acc:.4f}")
+
+    # Metrics for report
+    metrics['source_loss'].append(source_loss)
+    metrics['source_acc'].append(source_acc)
+    metrics['target_loss'].append(target_loss)
+    metrics['target_acc'].append(target_acc)
+
+    save_metrics_to_file({'adabn': metrics}, 'metrics.json')
 
     # Save final model
     torch.save(model.state_dict(), 'final_adabn.pth')
